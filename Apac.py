@@ -2,12 +2,46 @@ import streamlit as st
 import cv2
 import numpy as np
 import mediapipe as mp
-from tensorflow.keras.models import load_model # type: ignore
+from tensorflow.keras.models import load_model  # type: ignore
 from PIL import Image
 import os
 import glob
 import time
 import pyperclip
+import zipfile
+
+# ===========================
+# Install gdown if not already installed
+# ===========================
+try:
+    import gdown
+except ImportError:
+    os.system('pip install gdown')
+    import gdown
+
+# ===========================
+# Helper Functions
+# ===========================
+def download_file_from_drive(drive_url, output_path):
+    """Download a file from Google Drive given a sharable URL."""
+    file_id = None
+    if "id=" in drive_url:
+        file_id = drive_url.split("id=")[-1]
+    elif "file/d/" in drive_url:
+        file_id = drive_url.split("file/d/")[1].split("/")[0]
+
+    if file_id:
+        gdown.download(f"https://drive.google.com/uc?id={file_id}", output_path, quiet=False)
+    else:
+        st.error("Invalid Google Drive URL!")
+
+def download_and_unzip(drive_url, extract_to):
+    """Download ZIP file from Drive and unzip it."""
+    zip_path = "temp.zip"
+    download_file_from_drive(drive_url, zip_path)
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_to)
+    os.remove(zip_path)
 
 # ===========================
 # Load Custom CSS for Styling
@@ -23,7 +57,6 @@ local_css("style.css")
 
 st.markdown("""
     <style>
-        /* When hovering over the text input box, change cursor to pointer */
         textarea {
             cursor: pointer;
         }
@@ -31,61 +64,58 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ===========================
-# Initialize MediaPipe hands and drawing utilities
+# Initialize MediaPipe
 # ===========================
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 
 # ===========================
-# Load Trained Model
+# Load Trained Models
 # ===========================
 @st.cache_resource
 def load_all_models():
-    letter_model = load_model("L_model.h5")
-    number_model = load_model("N_model.h5")
-    word_model = load_model("W_model.h5")
+    l_model_path = "L_model.h5"
+    n_model_path = "N_model.h5"
+    w_model_path = "W_model.h5"
+
+    # Paste your Google Drive model links here
+    l_model_url = "https://drive.google.com/file/d/1oU978RNbe_MJFK9YQGUqBj1R_0Efkzvf/view?usp=sharing"
+    n_model_url = "https://drive.google.com/file/d/1beVVBz21qQpSmA2GOsj8Sx-8Gx1MzsW2/view?usp=sharing"
+    w_model_url = "https://drive.google.com/file/d/1oS2uZQzCElx7s9rP0oYrPSmgEdrECqMr/view?usp=sharing"
+
+    if not os.path.exists(l_model_path):
+        download_file_from_drive(l_model_url, l_model_path)
+    if not os.path.exists(n_model_path):
+        download_file_from_drive(n_model_url, n_model_path)
+    if not os.path.exists(w_model_path):
+        download_file_from_drive(w_model_url, w_model_path)
+
+    letter_model = load_model(l_model_path)
+    number_model = load_model(n_model_path)
+    word_model = load_model(w_model_path)
+
     return letter_model, number_model, word_model
 
 letter_model, number_model, word_model = load_all_models()
 
-# Updated label dictionaries
+# ===========================
+# Labels
+# ===========================
 letter_labels = {i: chr(65+i) for i in range(26)}  # A-Z
-number_labels = {i: str(i) for i in range(10)}  # 0-9
+number_labels = {i: str(i) for i in range(10)}     # 0-9
 word_labels = {
-    0: "afraid",
-    1: "agree",
-    2: "assistance",
-    3: "bad",
-    4: "become",
-    5: "college",
-    6: "doctor",
-    7: "from",
-    8: "pain",
-    9: "pray",
-    10: "secondary",
-    11: "skin",
-    12: "small",
-    13: "specific",
-    14: "stand",
-    15: "today",
-    16: "warn",
-    17: "which",
-    18: "work",
-    19: "you",
-    20: "are",
-    21: "is",
-    22: "do"
+    0: "afraid", 1: "agree", 2: "assistance", 3: "bad", 4: "become", 5: "college",
+    6: "doctor", 7: "from", 8: "pain", 9: "pray", 10: "secondary", 11: "skin",
+    12: "small", 13: "specific", 14: "stand", 15: "today", 16: "warn", 17: "which",
+    18: "work", 19: "you", 20: "are", 21: "is", 22: "do"
 }
-
 
 # ===========================
 # Preprocessing Functions
 # ===========================
 def extract_keypoints_from_image(image):
-    mp_hands = mp.solutions.hands
     with mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5) as hands:
         image_np = np.array(image)
-
         if len(image_np.shape) == 3 and image_np.shape[2] == 4:
             image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2BGR)
         elif len(image_np.shape) == 3 and image_np.shape[2] == 3:
@@ -94,30 +124,14 @@ def extract_keypoints_from_image(image):
             image_np = cv2.cvtColor(image_np, cv2.COLOR_GRAY2BGR)
 
         results = hands.process(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB))
-        
+
         if results.multi_hand_landmarks:
-            hand_landmarks = results.multi_hand_landmarks[0]  # Only the first hand
+            hand_landmarks = results.multi_hand_landmarks[0]
             keypoints = []
             for lm in hand_landmarks.landmark:
                 keypoints.extend([lm.x, lm.y, lm.z])
             return np.array(keypoints).reshape(1, 1, 63).astype(np.float32)
-
     return None
-
-def extract_keypoints_from_frame(frame):
-    """Extract 63 keypoints from a live frame using MediaPipe."""
-    with mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.7) as hands:
-        results = hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                keypoints = []
-                for lm in hand_landmarks.landmark:
-                    keypoints.extend([lm.x, lm.y, lm.z])
-                if len(keypoints) == 63:
-                    return np.array(keypoints).reshape(1, 1, 63)
-    return None
-
-
 
 # ===========================
 # Streamlit UI Setup
@@ -125,9 +139,6 @@ def extract_keypoints_from_frame(frame):
 st.sidebar.image("apac_logo.jpg", width=120)
 st.sidebar.title("APAC")
 
-# ===========================
-# Main Page UI
-# ===========================
 st.title("Introducing APAC – AI-Powered Accessibility Chatbot")
 st.write(
     "APAC is a chatbot that responds to sign language, using AI to convert sign language gestures "
@@ -139,12 +150,12 @@ st.write(
 # ===========================
 input_choice = st.selectbox("Select Input Type", ("Upload Image", "Live Webcam", "Text to Sign"))
 if "sentence" not in st.session_state:
-    st.session_state.sentence = ""  # Initialize sentence in session_state
+    st.session_state.sentence = ""
 
 # ===========================
 # Upload Image Handling
 # ===========================
-elif input_choice == "Upload Image":
+if input_choice == "Upload Image":
     uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
 
     if uploaded_file is not None:
@@ -153,7 +164,6 @@ elif input_choice == "Upload Image":
 
         keypoints = extract_keypoints_from_image(image)
 
-        # Prepare input for letter model (image)
         img_resized = image.resize((224, 224))
         img_array = np.array(img_resized)
 
@@ -168,7 +178,6 @@ elif input_choice == "Upload Image":
         if keypoints is not None:
             keypoints_input = np.array(keypoints).reshape(1, -1)
 
-            # Predict using letter model (image input) and number model (keypoints)
             pred_letter = letter_model.predict(img_input)
             pred_number = number_model.predict(img_input)
 
@@ -194,7 +203,7 @@ elif input_choice == "Upload Image":
             st.warning("No hand detected or unable to extract keypoints.")
 
 # ===========================
-# Live Webcam Handling with Word Model Only
+# Live Webcam Handling
 # ===========================
 if input_choice == "Live Webcam":
     if st.button("Start Webcam for Live Translation", key="start_webcam"):
@@ -239,12 +248,10 @@ if input_choice == "Live Webcam":
                         mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
                         if current_time - last_prediction_time >= 4:
-                            # Prepare image for word model
                             resized_frame = cv2.resize(frame, (224, 224))
                             normalized_frame = resized_frame / 255.0
                             image_input = np.expand_dims(normalized_frame, axis=0)
 
-                            # Word model prediction
                             pred_word = word_model.predict(image_input)
                             conf_word = np.max(pred_word)
                             label_word = word_labels.get(np.argmax(pred_word), "Unknown")
@@ -252,7 +259,6 @@ if input_choice == "Live Webcam":
                             if conf_word >= 0.7:
                                 detected_labels.append(label_word)
 
-                    # Add word if it's not repeated
                     if detected_labels:
                         final_prediction = " ".join(set(detected_labels))
                         if final_prediction != previous_word:
@@ -267,13 +273,9 @@ if input_choice == "Live Webcam":
                 st.session_state.counter += 1
                 st.session_state.sentence = sentence.strip()
 
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-
         cap.release()
         cv2.destroyAllWindows()
 
-    # Final output
     st.text_area("Final Translated Output", value=st.session_state.sentence,
                  height=150, key="final_sentence_output", disabled=True)
 
@@ -284,15 +286,23 @@ if input_choice == "Live Webcam":
         else:
             st.warning("No text to copy!")
 
-
 # ===========================
-# Text-to-Sign Handling
+# Text to Sign Handling
 # ===========================
 if input_choice == "Text to Sign":
     text_input = st.text_input("Enter text to translate to sign language:")
 
-    letters_dir = "C:/Users/nmiru/OneDrive/Desktop/letters"  # Replace with actual folder path
-    numbers_dir = "C:/Users/nmiru/OneDrive/Desktop/numbers"  # Replace with actual folder path
+    letters_dir = "letters"
+    numbers_dir = "numbers"
+
+    # Paste your ZIP links here
+    letters_zip_url = "https://drive.google.com/file/d/1KBzm4W4RoCRBl3ibk28FOvBeHzVoa4U_/view?usp=sharing"
+    numbers_zip_url = "https://drive.google.com/file/d/1dXaMoQS-i31q-pfQQQKvceP3znq5F6CP/view?usp=sharing"
+
+    if not os.path.exists(letters_dir):
+        download_and_unzip(letters_zip_url, letters_dir)
+    if not os.path.exists(numbers_dir):
+        download_and_unzip(numbers_zip_url, numbers_dir)
 
     if text_input:
         words = text_input.split()
@@ -317,6 +327,7 @@ if input_choice == "Text to Sign":
                     st.warning(f"Images not found for '{word}'. Add some in '{folder_path}'.")
             else:
                 st.warning(f"Folder for '{word}' not found in: {folder_path}")
+
 
 
 
