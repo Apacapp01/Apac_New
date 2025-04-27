@@ -42,7 +42,7 @@ mp_drawing = mp.solutions.drawing_utils
 @st.cache_resource
 def load_all_models():
     letter_model = load_model("L_model.h5")
-    number_model = load_model("N_model1.h5")
+    number_model = load_model("N_model.h5")
     word_model = load_model("W_model.h5")
     return letter_model, number_model, word_model
 
@@ -50,7 +50,7 @@ letter_model, number_model, word_model = load_all_models()
 
 # Updated label dictionaries
 letter_labels = {i: chr(65+i) for i in range(26)}  # A-Z
-number_labels = {i: str(i+1) for i in range(9)}    # 1-9
+number_labels = {i: str(i) for i in range(10)}  # 0-9
 word_labels = {
     0: "afraid",
     1: "agree",
@@ -83,16 +83,18 @@ word_labels = {
 # ===========================
 def extract_keypoints_from_image(image):
     mp_hands = mp.solutions.hands
-    with mp_hands.Hands(static_image_mode=True, max_num_hands=2, min_detection_confidence=0.5) as hands:
+    with mp_hands.Hands(static_image_mode=True, max_num_hands=1, min_detection_confidence=0.5) as hands:
         image_np = np.array(image)
 
-        if image_np.shape[2] == 4:
+        if len(image_np.shape) == 3 and image_np.shape[2] == 4:
             image_np = cv2.cvtColor(image_np, cv2.COLOR_RGBA2BGR)
-        elif image_np.shape[2] == 3:
+        elif len(image_np.shape) == 3 and image_np.shape[2] == 3:
             image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+        elif len(image_np.shape) == 2:
+            image_np = cv2.cvtColor(image_np, cv2.COLOR_GRAY2BGR)
 
         results = hands.process(cv2.cvtColor(image_np, cv2.COLOR_BGR2RGB))
-
+        
         if results.multi_hand_landmarks:
             hand_landmarks = results.multi_hand_landmarks[0]  # Only the first hand
             keypoints = []
@@ -122,20 +124,6 @@ def extract_keypoints_from_frame(frame):
 # ===========================
 st.sidebar.image("apac_logo.jpg", width=120)
 st.sidebar.title("APAC")
-if st.sidebar.button("Explore APAC", key="explore_apac"):
-    st.success("Explore APAC coming soon...")
-if st.sidebar.button("New Chat", key="new_chat"):
-    st.success("New chat feature coming soon...")
-if st.sidebar.button("Recent", key="recent"):
-    st.success("Recent chats will be available soon...")
-st.sidebar.markdown("---")
-if st.sidebar.button("APAC Manager", key="apac_manager"):
-    st.success("APAC Manager is under development...")
-if st.sidebar.button("Help", key="help"):
-    st.info("Help and support will be available soon.")
-if st.sidebar.button("Activity", key="activity"):
-    st.success("Activity logs will be available shortly...")
-
 
 # ===========================
 # Main Page UI
@@ -329,4 +317,6 @@ if input_choice == "Text to Sign":
                     st.warning(f"Images not found for '{word}'. Add some in '{folder_path}'.")
             else:
                 st.warning(f"Folder for '{word}' not found in: {folder_path}")
+
+
 
