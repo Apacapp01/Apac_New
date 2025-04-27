@@ -1,7 +1,8 @@
 Required libraries:
 streamlit
-cv2
+opencv-python
 numpy
 mediapipe
 tensorflow
 pyperclip
+numpy
