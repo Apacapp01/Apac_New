@@ -1,0 +1,7 @@
+Required libraries:
+streamlit
+cv2
+numpy
+mediapipe
+tensorflow
+pyperclip
