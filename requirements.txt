@@ -1,4 +1,3 @@
-Required libraries:
 streamlit
 opencv-python
 numpy
